@@ -1,0 +1,19 @@
+{
+  "name": "ecovolt-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:prod": "node server.js",
+    "health": "node -e \"fetch('http://localhost:'+process.env.PORT+'/health').then(r=>r.text()).then(console.log).catch(e=>{console.error(e);process.exit(1)})\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ws": "^8.18.0",
+    "mqtt": "^5.7.0",
+    "pg": "^8.12.0"
+  }
+}
