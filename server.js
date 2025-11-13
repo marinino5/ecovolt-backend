@@ -1,8 +1,7 @@
-// server.js
-// Backend de ejemplo para Ecovolt IoT
+// server.js (versión ES Module para Node con type: "module")
 
-const express = require("express");
-const cors = require("cors");
+import express from "express";
+import cors from "cors";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -44,9 +43,8 @@ function pushHistorySample(timestamp = Date.now()) {
   });
 }
 
-// Inicializamos con un día de datos
+// Inicializamos con un día de datos simulados
 for (let i = 0; i < 24 * 6; i++) {
-  // pequeña variación
   state.temp += (Math.random() - 0.5) * 0.4;
   state.power += (Math.random() - 0.5) * 0.1;
   state.voltage += (Math.random() - 0.5) * 1.5;
@@ -56,7 +54,7 @@ for (let i = 0; i < 24 * 6; i++) {
   pushHistorySample(Date.now() - (24 * 60 * 60 * 1000) + i * 10 * 60 * 1000);
 }
 
-// Cada 10 min simulados (p.ej. cada 5 segundos reales) generamos un nuevo punto
+// Cada 5 segundos → 10 minutos simulados
 setInterval(() => {
   state.temp += (Math.random() - 0.5) * 0.4;
   state.power += (Math.random() - 0.5) * 0.1;
@@ -64,7 +62,6 @@ setInterval(() => {
   state.battery += (Math.random() - 0.7) * 2;
   state.lastChargeMinutes += 10;
 
-  // límites
   if (state.temp < 20) state.temp = 20;
   if (state.temp > 40) state.temp = 40;
   if (state.power < 0.4) state.power = 0.4;
@@ -79,12 +76,12 @@ setInterval(() => {
 
 // ----- ENDPOINTS -----
 
-// Health simple
+// Health para Coolify y el frontend
 app.get("/health", (req, res) => {
   res.json({ status: "ok", message: "Ecovolt backend operativo" });
 });
 
-// Estado actual de todos los sensores
+// Estado actual de los sensores
 app.get("/api/state", (req, res) => {
   res.json({
     temperature: state.temp,
@@ -95,7 +92,7 @@ app.get("/api/state", (req, res) => {
   });
 });
 
-// Historial de un sensor: temperature | power | voltage | battery | lastChargeMinutes
+// Historial de un sensor
 app.get("/api/history/:sensor", (req, res) => {
   const sensor = req.params.sensor;
   if (!history[sensor]) {
@@ -104,14 +101,12 @@ app.get("/api/history/:sensor", (req, res) => {
   res.json(history[sensor]);
 });
 
-// Comandos de "retroceso" (control)
+// Comandos de "retroceso"
 app.post("/api/command", (req, res) => {
   const { deviceId, action, targetBattery } = req.body || {};
-
   console.log("Comando recibido:", req.body);
 
   if (action === "force_charge") {
-    // Simulamos que cargamos la batería
     if (typeof targetBattery === "number") {
       state.battery = Math.min(100, Math.max(state.battery, targetBattery));
     } else {
@@ -120,16 +115,16 @@ app.post("/api/command", (req, res) => {
     state.lastChargeMinutes = 0;
     pushHistorySample();
 
-    return res.json({ ok: true, message: "Carga forzada aplicada en el digital twin" });
+    return res.json({
+      ok: true,
+      message: "Carga forzada aplicada en el digital twin"
+    });
   }
-
-  // Otros comandos que quieras inventar
-  // if (action === "shutdown_station") { ... }
 
   res.json({ ok: true, message: "Comando recibido (sin acción específica)" });
 });
 
-// ----------------------------
+// Arrancar servidor
 app.listen(PORT, () => {
   console.log(`Ecovolt backend escuchando en puerto ${PORT}`);
 });
