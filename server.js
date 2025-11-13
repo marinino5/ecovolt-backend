@@ -1,80 +1,135 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import { WebSocketServer } from 'ws';
+// server.js
+// Backend de ejemplo para Ecovolt IoT
 
-// ----- Config -----
-const PORT = process.env.PORT || 3000;
-const ORIGINS = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+const express = require("express");
+const cors = require("cors");
 
-// ----- App -----
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(cors());
 app.use(express.json());
-app.use(cors({
-  origin: ORIGINS.length ? ORIGINS : true,
-  credentials: true
-}));
 
-// Salud
-app.get('/health', (_req, res) => res.status(200).send('OK'));
+// ----- Estado simulado (igual que en el front) -----
+const state = {
+  temp: 27.3,
+  power: 1.47,
+  voltage: 220,
+  battery: 77,
+  lastChargeMinutes: 41
+};
 
-// Estado en memoria para demo IoT
-let latestReadings = {}; // { topic: { value, ts } }
+const history = {
+  temperature: [],
+  power: [],
+  voltage: [],
+  battery: [],
+  lastChargeMinutes: []
+};
 
-// Endpoint REST para obtener últimos datos
-app.get('/iot/latest', (_req, res) => res.json({ data: latestReadings }));
+const HISTORY_LIMIT = 7 * 24 * 6; // 7 días
 
-// (Opcional) PostgreSQL ejemplo de conexión
-// Solo si defines DATABASE_URL en Coolify (p.ej. postgres://user:pass@host:5432/db)
-let pgClient = null;
-if (process.env.DATABASE_URL) {
-  const { Client } = await import('pg');
-  pgClient = new Client({ connectionString: process.env.DATABASE_URL, ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false });
-  pgClient.connect().catch(console.error);
-}
+function pushHistorySample(timestamp = Date.now()) {
+  history.temperature.push({ t: timestamp, v: state.temp });
+  history.power.push({ t: timestamp, v: state.power });
+  history.voltage.push({ t: timestamp, v: state.voltage });
+  history.battery.push({ t: timestamp, v: state.battery });
+  history.lastChargeMinutes.push({ t: timestamp, v: state.lastChargeMinutes });
 
-// WebSocket para push en tiempo real al front
-const server = app.listen(PORT, () => console.log('API on :' + PORT));
-const wss = new WebSocketServer({ server, path: '/ws' });
-
-function broadcast(obj) {
-  const msg = JSON.stringify(obj);
-  wss.clients.forEach(c => { try { c.send(msg); } catch {} });
-}
-
-// (Opcional) MQTT → recibe datos y los reenvía por WS + guarda en DB/memoria
-if (process.env.MQTT_URL) {
-  const mqtt = await import('mqtt');
-  const client = mqtt.connect(process.env.MQTT_URL, {
-    username: process.env.MQTT_USERNAME,
-    password: process.env.MQTT_PASSWORD,
-    clientId: process.env.MQTT_CLIENT_ID || 'ecovolt-' + Math.random().toString(16).slice(2)
-  });
-
-  const topics = (process.env.MQTT_TOPICS || 'ecovolt/+/telemetry').split(',').map(t => t.trim());
-
-  client.on('connect', () => {
-    console.log('MQTT connected');
-    topics.forEach(t => client.subscribe(t, { qos: 0 }, err => err && console.error(err)));
-  });
-
-  client.on('message', async (topic, payload) => {
-    let data = null;
-    try { data = JSON.parse(payload.toString()); } catch { data = { raw: payload.toString() }; }
-    const row = { topic, data, ts: Date.now() };
-    latestReadings[topic] = { value: data, ts: row.ts };
-
-    // Guardar en DB (opcional)
-    if (pgClient) {
-      try {
-        await pgClient.query(
-          'CREATE TABLE IF NOT EXISTS telemetry (id bigserial primary key, topic text, payload jsonb, ts timestamptz default now());'
-        );
-        await pgClient.query('INSERT INTO telemetry(topic, payload) VALUES ($1, $2)', [topic, data]);
-      } catch (e) { console.error('DB insert error', e); }
+  Object.keys(history).forEach((key) => {
+    const arr = history[key];
+    if (arr.length > HISTORY_LIMIT) {
+      arr.splice(0, arr.length - HISTORY_LIMIT);
     }
-
-    // Notificar al front en tiempo real
-    broadcast({ type: 'telemetry', topic, data, ts: row.ts });
   });
 }
+
+// Inicializamos con un día de datos
+for (let i = 0; i < 24 * 6; i++) {
+  // pequeña variación
+  state.temp += (Math.random() - 0.5) * 0.4;
+  state.power += (Math.random() - 0.5) * 0.1;
+  state.voltage += (Math.random() - 0.5) * 1.5;
+  state.battery += (Math.random() - 0.7) * 2;
+  state.lastChargeMinutes += 10;
+
+  pushHistorySample(Date.now() - (24 * 60 * 60 * 1000) + i * 10 * 60 * 1000);
+}
+
+// Cada 10 min simulados (p.ej. cada 5 segundos reales) generamos un nuevo punto
+setInterval(() => {
+  state.temp += (Math.random() - 0.5) * 0.4;
+  state.power += (Math.random() - 0.5) * 0.1;
+  state.voltage += (Math.random() - 0.5) * 1.5;
+  state.battery += (Math.random() - 0.7) * 2;
+  state.lastChargeMinutes += 10;
+
+  // límites
+  if (state.temp < 20) state.temp = 20;
+  if (state.temp > 40) state.temp = 40;
+  if (state.power < 0.4) state.power = 0.4;
+  if (state.power > 3.0) state.power = 3.0;
+  if (state.voltage < 210) state.voltage = 210;
+  if (state.voltage > 240) state.voltage = 240;
+  if (state.battery < 5) state.battery = 5;
+  if (state.battery > 100) state.battery = 100;
+
+  pushHistorySample();
+}, 5000);
+
+// ----- ENDPOINTS -----
+
+// Health simple
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", message: "Ecovolt backend operativo" });
+});
+
+// Estado actual de todos los sensores
+app.get("/api/state", (req, res) => {
+  res.json({
+    temperature: state.temp,
+    power: state.power,
+    voltage: state.voltage,
+    battery: state.battery,
+    lastChargeMinutes: state.lastChargeMinutes
+  });
+});
+
+// Historial de un sensor: temperature | power | voltage | battery | lastChargeMinutes
+app.get("/api/history/:sensor", (req, res) => {
+  const sensor = req.params.sensor;
+  if (!history[sensor]) {
+    return res.status(400).json({ error: "Sensor desconocido" });
+  }
+  res.json(history[sensor]);
+});
+
+// Comandos de "retroceso" (control)
+app.post("/api/command", (req, res) => {
+  const { deviceId, action, targetBattery } = req.body || {};
+
+  console.log("Comando recibido:", req.body);
+
+  if (action === "force_charge") {
+    // Simulamos que cargamos la batería
+    if (typeof targetBattery === "number") {
+      state.battery = Math.min(100, Math.max(state.battery, targetBattery));
+    } else {
+      state.battery = 100;
+    }
+    state.lastChargeMinutes = 0;
+    pushHistorySample();
+
+    return res.json({ ok: true, message: "Carga forzada aplicada en el digital twin" });
+  }
+
+  // Otros comandos que quieras inventar
+  // if (action === "shutdown_station") { ... }
+
+  res.json({ ok: true, message: "Comando recibido (sin acción específica)" });
+});
+
+// ----------------------------
+app.listen(PORT, () => {
+  console.log(`Ecovolt backend escuchando en puerto ${PORT}`);
+});
