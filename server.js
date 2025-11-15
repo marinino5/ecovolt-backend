@@ -1,4 +1,4 @@
-// server.js - VERSIÓN COMPLETA IOT CORREGIDA
+// server.js - VERSIÓN COMPLETA CORREGIDA (LÓGICA DE CARGA FIXED)
 import express from "express";
 import cors from "cors";
 import WebSocket, { WebSocketServer } from "ws";
@@ -65,7 +65,6 @@ app.use(cors({
     credentials: true,
     optionsSuccessStatus: 200
 }));
-
 
 app.use((req, res, next) => {
     const allowedOrigins = [
@@ -258,6 +257,40 @@ function pushHistorySample(timestamp = Date.now()) {
   });
 }
 
+// ===== LÓGICA CORREGIDA PARA ÚLTIMA CARGA =====
+function updateLastChargeTime() {
+  const batteryTrend = history.battery.length >= 2 
+    ? history.battery[history.battery.length - 1].v - history.battery[history.battery.length - 2].v
+    : 0;
+
+  // Si la batería está cargándose (tendencia positiva significativa)
+  if (batteryTrend > 0.5) {
+    // RESETEAR contador - ¡ESTAMOS CARGANDO!
+    state.lastChargeMinutes = 0;
+    console.log(`🔋 Batería cargándose (${batteryTrend.toFixed(2)}), reset lastChargeMinutes a 0`);
+  } 
+  // Si la batería está descargándose o estable
+  else {
+    // Solo incrementar si no estamos cargando
+    state.lastChargeMinutes += 10;
+    
+    // Resetear después de 8 horas (480 min) máximo
+    if (state.lastChargeMinutes > 480) {
+      state.lastChargeMinutes = 0;
+      console.log('🔄 Reset por tiempo máximo alcanzado');
+    }
+  }
+
+  // GARANTIZAR que nunca sea negativo
+  state.lastChargeMinutes = Math.max(0, state.lastChargeMinutes);
+  
+  // Resetear si la batería llega al 100%
+  if (state.battery >= 99.5) {
+    state.lastChargeMinutes = 0;
+    console.log('✅ Reset por carga completa');
+  }
+}
+
 // Inicializar con datos históricos de 7 días
 console.log('📊 Generando datos históricos de 7 días...');
 for (let i = 0; i < 7 * 24 * 6; i++) { // 7 días * 24 horas * 6 (cada 10 min)
@@ -269,11 +302,11 @@ for (let i = 0; i < 7 * 24 * 6; i++) { // 7 días * 24 horas * 6 (cada 10 min)
   state.voltage = 220 + (Math.random() - 0.5) * 8;
   state.battery = Math.max(15, 80 - i/10 + (Math.random() - 0.5) * 5);
   
-  // LÓGICA CORREGIDA PARA HISTORIAL
+  // LÓGICA CORREGIDA PARA HISTORIAL - SIN NEGATIVOS
   if (i % 144 === 0) { // Reset cada ~24 puntos (4 horas)
     state.lastChargeMinutes = 0;
   } else {
-    state.lastChargeMinutes = (i * 10) % 240; // Ciclo de 4 horas máximo
+    state.lastChargeMinutes = Math.max(0, (i * 10) % 480); // Máximo 8 horas, mínimo 0
   }
   
   pushHistorySample(Date.now() - (7 * 24 * 60 * 60 * 1000) + i * 10 * 60 * 1000);
@@ -330,7 +363,7 @@ app.get("/api/state", (req, res) => {
     power: parseFloat(state.power.toFixed(2)),
     voltage: parseFloat(state.voltage.toFixed(1)),
     battery: parseFloat(state.battery.toFixed(1)),
-    lastChargeMinutes: state.lastChargeMinutes,
+    lastChargeMinutes: Math.round(state.lastChargeMinutes), // Redondear a entero
     timestamp: new Date().toISOString()
   });
 });
@@ -545,7 +578,7 @@ app.post("/webhook/grafana", (req, res) => {
     power: parseFloat(state.power.toFixed(2)), 
     voltage: parseFloat(state.voltage.toFixed(1)),
     battery: parseFloat(state.battery.toFixed(1)),
-    lastChargeMinutes: state.lastChargeMinutes,
+    lastChargeMinutes: Math.round(state.lastChargeMinutes), // Redondear a entero
     timestamp: new Date().toISOString()
   };
   
@@ -579,57 +612,23 @@ app.get("/api/grafana", (req, res) => {
   res.json(grafanaData);
 });
 
-// ===== 9. SIMULACIÓN EN TIEMPO REAL =====
+// ===== 9. SIMULACIÓN EN TIEMPO REAL CORREGIDA =====
 setInterval(() => {
   // Actualizar valores de simulación con lógica realista
   state.temp += (Math.random() - 0.5) * 0.4;
   state.power += (Math.random() - 0.5) * 0.1;
   state.voltage += (Math.random() - 0.5) * 1.5;
   state.battery += (Math.random() - 0.7) * 2;
- // ===== LÓGICA CORREGIDA PARA ÚLTIMA CARGA =====
-function updateLastChargeTime() {
-  const batteryTrend = history.battery.length >= 2 
-    ? history.battery[history.battery.length - 1].v - history.battery[history.battery.length - 2].v
-    : 0;
-
-  // Si la batería está cargándose (tendencia positiva)
-  if (batteryTrend > 0.1) {
-    // RESETEAR contador - ¡ESTAMOS CARGANDO!
-    state.lastChargeMinutes = 0;
-  } 
-  // Si la batería está descargándose o estable
-  else if (batteryTrend < -0.1 || Math.abs(batteryTrend) < 0.1) {
-    // Incrementar tiempo desde última carga completa
-    state.lastChargeMinutes += 10;
-    
-    // Resetear si pasa mucho tiempo (máximo 8 horas)
-    if (state.lastChargeMinutes > 480) {
-      state.lastChargeMinutes = 0;
-    }
-  }
-
-  // Forzar reset si la batería llega al 100%
-  if (state.battery >= 99.5) {
-    state.lastChargeMinutes = 0;
-  }
-}
-
-// Luego en el setInterval, reemplaza la lógica actual por:
-setInterval(() => {
-  // ... (actualizaciones de temp, power, voltage, battery)
   
-  // USAR LA NUEVA LÓGICA
+  // USAR LA NUEVA LÓGICA CORREGIDA
   updateLastChargeTime();
-  
-  // ... (resto del código)
-}, 5000);
 
   // Limitar rangos
   state.temp = Math.max(20, Math.min(40, state.temp));
   state.power = Math.max(0.4, Math.min(3.0, state.power));
   state.voltage = Math.max(210, Math.min(240, state.voltage));
   state.battery = Math.max(5, Math.min(100, state.battery));
-  state.lastChargeMinutes = Math.max(0, Math.min(480, state.lastChargeMinutes)); // Máximo 8 horas
+  state.lastChargeMinutes = Math.max(0, Math.min(480, state.lastChargeMinutes)); // Máximo 8 horas, mínimo 0
 
   pushHistorySample();
 
@@ -655,7 +654,8 @@ const server = app.listen(PORT, () => {
   console.log(`🔧 Dispositivos: ${Object.keys(devices).length} configurados`);
   console.log(`💾 Datos históricos: ${history.temperature.length} puntos por sensor`);
   console.log(`🌤️  Weather API: Azure Maps integrado`);
-  console.log(`🔄 Retroceso: Comandos de control activos\n`);
+  console.log(`🔄 Retroceso: Comandos de control activos`);
+  console.log(`🔋 Lógica de carga: CORREGIDA (sin minutos negativos)\n`);
 });
 
 server.on('upgrade', (request, socket, head) => {
