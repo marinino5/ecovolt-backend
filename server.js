@@ -586,21 +586,43 @@ setInterval(() => {
   state.power += (Math.random() - 0.5) * 0.1;
   state.voltage += (Math.random() - 0.5) * 1.5;
   state.battery += (Math.random() - 0.7) * 2;
-  
-  // LÓGICA CORREGIDA PARA ÚLTIMA CARGA
-  if (state.battery < 20 && Math.random() > 0.95) {
-    // Simular carga cuando la batería está baja (5% de probabilidad)
+ // ===== LÓGICA CORREGIDA PARA ÚLTIMA CARGA =====
+function updateLastChargeTime() {
+  const batteryTrend = history.battery.length >= 2 
+    ? history.battery[history.battery.length - 1].v - history.battery[history.battery.length - 2].v
+    : 0;
+
+  // Si la batería está cargándose (tendencia positiva)
+  if (batteryTrend > 0.1) {
+    // RESETEAR contador - ¡ESTAMOS CARGANDO!
     state.lastChargeMinutes = 0;
-    state.battery = Math.min(100, state.battery + 30 + Math.random() * 40);
-  } else {
-    // Incrementar tiempo desde última carga normalmente
+  } 
+  // Si la batería está descargándose o estable
+  else if (batteryTrend < -0.1 || Math.abs(batteryTrend) < 0.1) {
+    // Incrementar tiempo desde última carga completa
     state.lastChargeMinutes += 10;
     
-    // Resetear después de 4 horas (240 min) o si pasa mucho tiempo
-    if (state.lastChargeMinutes > 240 || Math.random() > 0.98) {
+    // Resetear si pasa mucho tiempo (máximo 8 horas)
+    if (state.lastChargeMinutes > 480) {
       state.lastChargeMinutes = 0;
     }
   }
+
+  // Forzar reset si la batería llega al 100%
+  if (state.battery >= 99.5) {
+    state.lastChargeMinutes = 0;
+  }
+}
+
+// Luego en el setInterval, reemplaza la lógica actual por:
+setInterval(() => {
+  // ... (actualizaciones de temp, power, voltage, battery)
+  
+  // USAR LA NUEVA LÓGICA
+  updateLastChargeTime();
+  
+  // ... (resto del código)
+}, 5000);
 
   // Limitar rangos
   state.temp = Math.max(20, Math.min(40, state.temp));
