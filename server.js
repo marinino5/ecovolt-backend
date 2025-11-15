@@ -54,7 +54,18 @@ async function getRealWeatherData() {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+    origin: [
+        'https://marinino5.github.io',
+        'http://localhost:3000',
+        'http://localhost:5000',
+        'https://lotumab.eastus2.cloudapp.azure.com:30081'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true,
+    optionsSuccessStatus: 200
+}));
+
 app.use(express.json());
 
 // ===== 1. PROTOCOLOS DE COMUNICACIÓN =====
