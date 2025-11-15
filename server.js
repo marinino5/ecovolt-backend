@@ -268,7 +268,13 @@ for (let i = 0; i < 7 * 24 * 6; i++) { // 7 días * 24 horas * 6 (cada 10 min)
   state.power = basePower + (Math.random() - 0.5) * 0.3;
   state.voltage = 220 + (Math.random() - 0.5) * 8;
   state.battery = Math.max(15, 80 - i/10 + (Math.random() - 0.5) * 5);
-  state.lastChargeMinutes = (i * 10) % 1440; // Ciclo de 24 horas
+  
+  // LÓGICA CORREGIDA PARA HISTORIAL
+  if (i % 144 === 0) { // Reset cada ~24 puntos (4 horas)
+    state.lastChargeMinutes = 0;
+  } else {
+    state.lastChargeMinutes = (i * 10) % 240; // Ciclo de 4 horas máximo
+  }
   
   pushHistorySample(Date.now() - (7 * 24 * 60 * 60 * 1000) + i * 10 * 60 * 1000);
 }
@@ -575,18 +581,33 @@ app.get("/api/grafana", (req, res) => {
 
 // ===== 9. SIMULACIÓN EN TIEMPO REAL =====
 setInterval(() => {
-  // Actualizar valores de simulación
+  // Actualizar valores de simulación con lógica realista
   state.temp += (Math.random() - 0.5) * 0.4;
   state.power += (Math.random() - 0.5) * 0.1;
   state.voltage += (Math.random() - 0.5) * 1.5;
   state.battery += (Math.random() - 0.7) * 2;
-  state.lastChargeMinutes += 10;
+  
+  // LÓGICA CORREGIDA PARA ÚLTIMA CARGA
+  if (state.battery < 20 && Math.random() > 0.95) {
+    // Simular carga cuando la batería está baja (5% de probabilidad)
+    state.lastChargeMinutes = 0;
+    state.battery = Math.min(100, state.battery + 30 + Math.random() * 40);
+  } else {
+    // Incrementar tiempo desde última carga normalmente
+    state.lastChargeMinutes += 10;
+    
+    // Resetear después de 4 horas (240 min) o si pasa mucho tiempo
+    if (state.lastChargeMinutes > 240 || Math.random() > 0.98) {
+      state.lastChargeMinutes = 0;
+    }
+  }
 
   // Limitar rangos
   state.temp = Math.max(20, Math.min(40, state.temp));
   state.power = Math.max(0.4, Math.min(3.0, state.power));
   state.voltage = Math.max(210, Math.min(240, state.voltage));
   state.battery = Math.max(5, Math.min(100, state.battery));
+  state.lastChargeMinutes = Math.max(0, Math.min(480, state.lastChargeMinutes)); // Máximo 8 horas
 
   pushHistorySample();
 
@@ -598,7 +619,7 @@ setInterval(() => {
       power: parseFloat(state.power.toFixed(2)),
       voltage: parseFloat(state.voltage.toFixed(1)),
       battery: parseFloat(state.battery.toFixed(1)),
-      lastChargeMinutes: state.lastChargeMinutes
+      lastChargeMinutes: Math.round(state.lastChargeMinutes) // Redondear a minutos enteros
     },
     timestamp: new Date().toISOString()
   });
