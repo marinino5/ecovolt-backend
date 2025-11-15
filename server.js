@@ -66,6 +66,29 @@ app.use(cors({
     optionsSuccessStatus: 200
 }));
 
+
+app.use((req, res, next) => {
+    const allowedOrigins = [
+        'https://marinino5.github.io',
+        'http://localhost:3000', 
+        'http://localhost:5000'
+    ];
+    
+    const origin = req.headers.origin;
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    
+    next();
+});
 app.use(express.json());
 
 // ===== 1. PROTOCOLOS DE COMUNICACIÓN =====
